@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { RequestOptions } from './client'
 import type {
   LoginResponse,
   DashboardSummary,
@@ -55,7 +56,7 @@ export function getSignalsFeed(params: {
   severity?: string
   status?: string
   q?: string
-}) {
+}, opts?: RequestOptions) {
   const searchParams = new URLSearchParams()
   if (params.cursor) searchParams.set('cursor', params.cursor)
   if (params.limit != null) searchParams.set('limit', String(params.limit))
@@ -64,7 +65,7 @@ export function getSignalsFeed(params: {
   if (params.status) searchParams.set('status', params.status)
   if (params.q) searchParams.set('q', params.q)
   const qs = searchParams.toString()
-  return api.get<SignalFeedResponse>(`/signals/feed${qs ? `?${qs}` : ''}`)
+  return api.get<SignalFeedResponse>(`/signals/feed${qs ? `?${qs}` : ''}`, opts)
 }
 
 export function getSignal(id: string) {

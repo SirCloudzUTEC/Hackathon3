@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import type { Signal, SignalFeedResponse } from '../types/api'
 import * as api from '../api/endpoints'
 import { useUrlState } from '../hooks/use-url-state'
@@ -31,11 +32,8 @@ export function SignalsFeedPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const itemsRef = useRef(items)
-  itemsRef.current = items
-
   const loadPage = useCallback(
-    async (cur: string | null, append: boolean) => {
+    async (cur: string | null, append: boolean, signal?: AbortSignal) => {
       if (append) setLoadingMore(true)
       else setLoading(true)
       setError(null)
@@ -48,7 +46,9 @@ export function SignalsFeedPage() {
           severity: severity || undefined,
           status: status || undefined,
           q: q || undefined,
-        })
+        }, { signal })
+
+        if (signal?.aborted) return
 
         setItems((prev) => {
           const existingIds = append ? new Set(prev.map((s) => s.id)) : new Set()
@@ -59,22 +59,27 @@ export function SignalsFeedPage() {
         setHasMore(res.hasMore)
         setTotalEstimate(res.totalEstimate)
       } catch (err) {
+        if (signal?.aborted) return
         setError(err instanceof Error ? err.message : 'Error cargando senales')
       } finally {
-        setLoading(false)
-        setLoadingMore(false)
+        if (!signal?.aborted) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     [signalType, severity, status, q],
   )
 
-  // Reset on filter change
+  // Reset on filter change with AbortController
   useEffect(() => {
+    const controller = new AbortController()
     setItems([])
     setCursor(null)
     setHasMore(true)
-    loadPage(null, false)
-  }, [signalType, severity, status, q])
+    loadPage(null, false, controller.signal)
+    return () => controller.abort()
+  }, [signalType, severity, status, q, loadPage])
 
   // Intersection Observer for infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -169,9 +174,9 @@ export function SignalsFeedPage() {
       ) : (
         <div className="space-y-2">
           {items.map((signal) => (
-            <a
+            <Link
               key={signal.id}
-              href={`/signals/${signal.id}`}
+              to={`/signals/${signal.id}`}
               className="block bg-gray-900 rounded-xl p-4 border border-gray-800 hover:border-gray-600 transition-colors"
             >
               <div className="flex items-start justify-between">
@@ -200,7 +205,7 @@ export function SignalsFeedPage() {
                 <span>Tropel: {signal.tropel.name} ({signal.tropel.species})</span>
                 <span>{new Date(signal.createdAt).toLocaleString()}</span>
               </div>
-            </a>
+            </Link>
           ))}
 
           {/* Sentinel for infinite scroll */}
