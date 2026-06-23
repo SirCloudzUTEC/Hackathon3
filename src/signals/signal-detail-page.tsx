@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import type { Signal } from '../types/api'
 import * as api from '../api/endpoints'
 import { Loading } from '../components/loading'
+import { syncCachedSignal } from './signals-feed-page'
 
 export function SignalDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -37,6 +38,8 @@ export function SignalDetailPage() {
       setSignal(updated)
       setSuccess(`Estado actualizado a ${newStatus}`)
       setPendingStatus(null)
+      // Refleja el cambio en el feed cacheado para que se vea al volver atrás.
+      syncCachedSignal(updated)
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Error actualizando estado')
     } finally {

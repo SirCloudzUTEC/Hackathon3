@@ -16,6 +16,35 @@ const SIGNAL_TYPES = ['', 'HAMBRE', 'ABANDONO', 'MUTACION', 'FUGA', 'CONFLICTO',
 const SEVERITIES = ['', 'LEVE', 'MODERADO', 'GRAVE', 'CRITICO']
 const STATUSES = ['', 'RECIBIDA', 'PROCESANDO', 'ATENDIDA']
 
+/**
+ * Caché del feed a nivel de módulo (sobrevive al desmontaje del componente al
+ * navegar al detalle). Conserva las páginas ya cargadas y la posición de scroll
+ * para una sola combinación de filtros (`key`), de modo que volver del detalle
+ * restaura el feed exactamente donde estaba en vez de recargar desde la página 1.
+ */
+interface FeedCache {
+  key: string
+  items: Signal[]
+  cursor: string | null
+  hasMore: boolean
+  totalEstimate: number
+  scrollY: number
+}
+let feedCache: FeedCache | null = null
+
+/**
+ * Refleja en el caché del feed una señal actualizada (p. ej. tras un PATCH de
+ * estado en el detalle), de modo que al volver atrás el feed muestre el nuevo
+ * estado sin recargar todo desde la primera página.
+ */
+export function syncCachedSignal(updated: Signal): void {
+  if (!feedCache) return
+  feedCache = {
+    ...feedCache,
+    items: feedCache.items.map((s) => (s.id === updated.id ? updated : s)),
+  }
+}
+
 export function SignalsFeedPage() {
   const { get, set } = useUrlState<SignalFilters>()
 
@@ -24,11 +53,14 @@ export function SignalsFeedPage() {
   const status = get('status') ?? ''
   const q = get('q') ?? ''
 
-  const [items, setItems] = useState<Signal[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [hasMore, setHasMore] = useState(true)
-  const [totalEstimate, setTotalEstimate] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const filterKey = `${signalType}|${severity}|${status}|${q}`
+  const cached = feedCache && feedCache.key === filterKey ? feedCache : null
+
+  const [items, setItems] = useState<Signal[]>(() => cached?.items ?? [])
+  const [cursor, setCursor] = useState<string | null>(() => cached?.cursor ?? null)
+  const [hasMore, setHasMore] = useState(() => cached?.hasMore ?? true)
+  const [totalEstimate, setTotalEstimate] = useState(() => cached?.totalEstimate ?? 0)
+  const [loading, setLoading] = useState(() => !cached)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,16 +115,46 @@ export function SignalsFeedPage() {
     [signalType, severity, status, q],
   )
 
+  // En el primer render hidratamos desde caché (al volver del detalle): no
+  // recargamos y restauramos el scroll. Solo aplica al montaje inicial.
+  const hydrateOnMountRef = useRef(!!cached)
+  const initialKeyRef = useRef(filterKey)
+
   // Reset on filter change
   useEffect(() => {
     const controller = new AbortController()
     abortRef.current = controller
+
+    if (hydrateOnMountRef.current && filterKey === initialKeyRef.current) {
+      hydrateOnMountRef.current = false
+      const y = feedCache?.key === filterKey ? feedCache.scrollY : 0
+      // Doble rAF: espera a que la lista hidratada esté pintada antes de scrollear.
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)))
+      return () => controller.abort()
+    }
+
     setItems([])
     setCursor(null)
     setHasMore(true)
     loadPage(null, false, controller.signal)
     return () => controller.abort()
-  }, [signalType, severity, status, q, loadPage])
+  }, [signalType, severity, status, q, loadPage, filterKey])
+
+  // Mantiene el caché al día con las páginas cargadas (preservando el scrollY ya
+  // registrado para esta combinación de filtros).
+  useEffect(() => {
+    const prevScroll = feedCache && feedCache.key === filterKey ? feedCache.scrollY : 0
+    feedCache = { key: filterKey, items, cursor, hasMore, totalEstimate, scrollY: prevScroll }
+  }, [filterKey, items, cursor, hasMore, totalEstimate])
+
+  // Registra la posición de scroll para restaurarla al volver del detalle.
+  useEffect(() => {
+    const onScroll = () => {
+      if (feedCache && feedCache.key === filterKey) feedCache.scrollY = window.scrollY
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [filterKey])
 
   // Intersection Observer for infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null)
