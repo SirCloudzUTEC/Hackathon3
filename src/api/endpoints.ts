@@ -48,14 +48,17 @@ export function getTropel(id: string) {
   return api.get<Tropel>(`/tropels/${id}`)
 }
 
-export function getSignalsFeed(params: {
-  cursor?: string
-  limit?: number
-  signalType?: string
-  severity?: string
-  status?: string
-  q?: string
-}) {
+export function getSignalsFeed(
+  params: {
+    cursor?: string
+    limit?: number
+    signalType?: string
+    severity?: string
+    status?: string
+    q?: string
+  },
+  signal?: AbortSignal,
+) {
   const searchParams = new URLSearchParams()
   if (params.cursor) searchParams.set('cursor', params.cursor)
   if (params.limit != null) searchParams.set('limit', String(params.limit))
@@ -64,7 +67,7 @@ export function getSignalsFeed(params: {
   if (params.status) searchParams.set('status', params.status)
   if (params.q) searchParams.set('q', params.q)
   const qs = searchParams.toString()
-  return api.get<SignalFeedResponse>(`/signals/feed${qs ? `?${qs}` : ''}`)
+  return api.get<SignalFeedResponse>(`/signals/feed${qs ? `?${qs}` : ''}`, signal)
 }
 
 export function getSignal(id: string) {

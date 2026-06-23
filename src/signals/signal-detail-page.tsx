@@ -12,6 +12,7 @@ export function SignalDetailPage() {
   const [updating, setUpdating] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [pendingStatus, setPendingStatus] = useState<'PROCESANDO' | 'ATENDIDA' | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -27,6 +28,7 @@ export function SignalDetailPage() {
 
   async function handleStatusChange(newStatus: 'PROCESANDO' | 'ATENDIDA') {
     if (!id) return
+    setPendingStatus(newStatus)
     setUpdating(true)
     setUpdateError(null)
     setSuccess(null)
@@ -34,6 +36,7 @@ export function SignalDetailPage() {
       const updated = await api.updateSignalStatus(id, newStatus)
       setSignal(updated)
       setSuccess(`Estado actualizado a ${newStatus}`)
+      setPendingStatus(null)
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Error actualizando estado')
     } finally {
@@ -138,12 +141,15 @@ export function SignalDetailPage() {
         {updateError && (
           <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">
             {updateError}
-            <button
-              onClick={() => handleStatusChange(signal.status === 'ATENDIDA' ? 'PROCESANDO' : 'ATENDIDA')}
-              className="ml-3 underline hover:text-white"
-            >
-              Reintentar
-            </button>
+            {pendingStatus && (
+              <button
+                disabled={updating}
+                onClick={() => handleStatusChange(pendingStatus)}
+                className="ml-3 underline hover:text-white disabled:opacity-50"
+              >
+                Reintentar
+              </button>
+            )}
           </div>
         )}
       </div>

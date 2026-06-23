@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import type { Signal, SignalFeedResponse } from '../types/api'
 import * as api from '../api/endpoints'
 import { useUrlState } from '../hooks/use-url-state'
@@ -31,24 +32,32 @@ export function SignalsFeedPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const itemsRef = useRef(items)
-  itemsRef.current = items
+  // Controlador de cancelación compartido: una sola petición de feed viva a la
+  // vez. Cambiar de filtro o disparar otra carga aborta la anterior, evitando
+  // que una respuesta tardía (reset o load-more) contamine la lista actual.
+  const abortRef = useRef<AbortController | null>(null)
 
   const loadPage = useCallback(
-    async (cur: string | null, append: boolean) => {
+    async (cur: string | null, append: boolean, signal?: AbortSignal) => {
       if (append) setLoadingMore(true)
       else setLoading(true)
       setError(null)
 
       try {
-        const res: SignalFeedResponse = await api.getSignalsFeed({
-          cursor: cur ?? undefined,
-          limit: 15,
-          signalType: signalType || undefined,
-          severity: severity || undefined,
-          status: status || undefined,
-          q: q || undefined,
-        })
+        const res: SignalFeedResponse = await api.getSignalsFeed(
+          {
+            cursor: cur ?? undefined,
+            limit: 15,
+            signalType: signalType || undefined,
+            severity: severity || undefined,
+            status: status || undefined,
+            q: q || undefined,
+          },
+          signal,
+        )
+
+        // Descarta respuestas que llegaron tras una cancelación (race condition).
+        if (signal?.aborted) return
 
         setItems((prev) => {
           const existingIds = append ? new Set(prev.map((s) => s.id)) : new Set()
@@ -59,10 +68,16 @@ export function SignalsFeedPage() {
         setHasMore(res.hasMore)
         setTotalEstimate(res.totalEstimate)
       } catch (err) {
+        // Una cancelación no es un error de usuario: se ignora silenciosamente.
+        if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+          return
+        }
         setError(err instanceof Error ? err.message : 'Error cargando senales')
       } finally {
-        setLoading(false)
-        setLoadingMore(false)
+        if (!signal?.aborted) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     [signalType, severity, status, q],
@@ -70,11 +85,14 @@ export function SignalsFeedPage() {
 
   // Reset on filter change
   useEffect(() => {
+    const controller = new AbortController()
+    abortRef.current = controller
     setItems([])
     setCursor(null)
     setHasMore(true)
-    loadPage(null, false)
-  }, [signalType, severity, status, q])
+    loadPage(null, false, controller.signal)
+    return () => controller.abort()
+  }, [signalType, severity, status, q, loadPage])
 
   // Intersection Observer for infinite scroll
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -86,7 +104,9 @@ export function SignalsFeedPage() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          loadPage(cursor, true)
+          // Reusa el controlador del filtro vigente: si el filtro cambia, su
+          // abort() también cancela esta carga incremental.
+          loadPage(cursor, true, abortRef.current?.signal)
         }
       },
       { rootMargin: '200px' },
@@ -169,9 +189,9 @@ export function SignalsFeedPage() {
       ) : (
         <div className="space-y-2">
           {items.map((signal) => (
-            <a
+            <Link
               key={signal.id}
-              href={`/signals/${signal.id}`}
+              to={`/signals/${signal.id}`}
               className="block bg-gray-900 rounded-xl p-4 border border-gray-800 hover:border-gray-600 transition-colors"
             >
               <div className="flex items-start justify-between">
@@ -200,7 +220,7 @@ export function SignalsFeedPage() {
                 <span>Tropel: {signal.tropel.name} ({signal.tropel.species})</span>
                 <span>{new Date(signal.createdAt).toLocaleString()}</span>
               </div>
-            </a>
+            </Link>
           ))}
 
           {/* Sentinel for infinite scroll */}
