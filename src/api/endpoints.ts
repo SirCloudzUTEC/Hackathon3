@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
   LoginResponse,
+  User,
   DashboardSummary,
   TropelPage,
   Tropel,
@@ -15,8 +16,9 @@ export function login(teamCode: string, email: string, password: string) {
   return api.post<LoginResponse>('/auth/login', { teamCode, email, password })
 }
 
+// GET /auth/me devuelve el objeto User directamente (no envuelto en { user }).
 export function getMe() {
-  return api.get<LoginResponse>('/auth/me')
+  return api.get<User>('/auth/me')
 }
 
 export function getDashboardSummary() {
